@@ -2,9 +2,12 @@
 
 import argparse
 import sys
+from http import HTTPStatus
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
+
+DEFAULT_TIMEOUT = 15
 
 
 def main(args):
@@ -36,18 +39,28 @@ def main(args):
                 accept_downloads=False, service_workers="block"
             )
             context.set_default_navigation_timeout(args.timeout * 1_000)
+
             page = context.new_page()
-
-            try:
-                page.goto(url, wait_until=args.wait_until)
-            except PlaywrightTimeoutError:
-                # error_count += 1
-                print(f"Page: {url} timed out", file=sys.stderr)
-                continue
-
             page.on("console", lambda msg: print_error(url=url, message=msg))
             # Log all uncaught errors to the terminal
             page.on("pageerror", handle_exception)
+
+            response = None
+            try:
+                response = page.goto(url, wait_until=args.wait_until)
+            except PlaywrightTimeoutError:
+                error_count += 1
+                print(f"Page: {url} timed out", file=sys.stderr)
+                continue
+
+            if response.status != HTTPStatus.OK:
+                error_count += 1
+                print(
+                    f"GET {url} returned status code: {response.status}",
+                    file=sys.stderr,
+                )
+                continue
+
             context.close()
 
         browser.close()
@@ -90,9 +103,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "-t",
         "--timeout",
-        help="how long to wait for (defaults to 30s)",
+        help=f"how long to wait for (defaults to {DEFAULT_TIMEOUT}s)",
         type=float,
-        default=30.0,
+        default=DEFAULT_TIMEOUT,
     )
     parser.add_argument(
         "-w",
